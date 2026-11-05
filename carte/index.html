@@ -1,0 +1,78 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Atlas du gaz en Alsace</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Public+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap">
+<link rel="stylesheet" href="style.css">
+<script>
+  // mode jour par défaut ; le choix du lecteur est mémorisé dans son navigateur
+  try { document.documentElement.dataset.theme = localStorage.getItem("theme") || "light"; }
+  catch (e) { document.documentElement.dataset.theme = "light"; }
+</script>
+
+<div class="wrap">
+  <header>
+    <div>
+      <div class="topline"><div class="eyebrow">Alsace - gaz distribué 2019-2025</div>
+        <button class="themebtn" id="themeBtn" type="button"></button></div>
+      <h1>Le consommation recule, <em>mais le réseau reste</em>.</h1>
+      <p class="lede" id="lede">Chargement des données…</p>
+    </div>
+    <div class="kpis" id="kpis"></div>
+  </header>
+
+  <div class="controls" role="toolbar" aria-label="Réglages de la carte">
+    <div class="ctl"><span class="lbl">Afficher</span>
+      <div class="seg" id="segMode"></div>
+    </div>
+    <div class="ctl" id="ctlSect"><span class="lbl">Secteur</span>
+      <div class="seg" id="segSect">
+        <button data-v="tot" aria-pressed="true">Tous</button>
+        <button data-v="R" aria-pressed="false"><i class="dot" style="background:var(--s-R)"></i>Résidentiel</button>
+        <button data-v="T" aria-pressed="false"><i class="dot" style="background:var(--s-T)"></i>Tertiaire</button>
+        <button data-v="I" aria-pressed="false"><i class="dot" style="background:var(--s-I)"></i>Industrie</button>
+      </div>
+    </div>
+    <div class="ctl" id="ctlYear" hidden><label for="year">Année</label><input id="year" type="range" min="2019" max="2025" step="1" value="2025"><output id="yearOut" class="num">2025</output></div>
+    <div class="ctl" id="ctlFiltre" hidden></div>
+    <div class="ctl" id="couches"></div>
+    <div class="ctl push"><input id="search" list="communesList" placeholder="Chercher une commune…" aria-label="Chercher une commune"><datalist id="communesList"></datalist></div>
+  </div>
+
+  <div class="main">
+    <div class="mapbox" id="mapbox">
+      <svg id="map" role="img" aria-label="Carte des communes d'Alsace"></svg>
+      <canvas id="netCanvas"></canvas>
+      <div class="zoombtns"><button id="zin" aria-label="Zoomer">+</button><button id="zout" aria-label="Dézoomer">−</button><button id="zreset" aria-label="Vue d'ensemble">⤢</button></div>
+      <div class="legend" id="legend"></div>
+      <div class="tip" id="tip" hidden></div>
+    </div>
+    <aside class="panel" id="panel" aria-live="polite"></aside>
+  </div>
+
+  <div class="below">
+    <section>
+      <h2>Où le chauffage au gaz recule le plus</h2>
+      <p class="note">Évolution de la consommation résidentielle, moyenne 2023-2025 comparée à 2019-2021. Communes consommant au moins 5 GWh par an en résidentiel. Cliquer pour situer la commune.</p>
+      <ol class="rank" id="rank"></ol>
+    </section>
+    <section class="method">
+      <h2>Méthode et limites</h2>
+      <ul>
+        <li><b>Évolution</b> : moyenne 2023-2025 comparée à la moyenne 2019-2021, ce qui lisse les écarts de météo d'une année sur l'autre. Seuls les gestionnaires présents sur les deux périodes sont comparés, pour ne pas confondre une donnée manquante avec une baisse.</li>
+        <li><b>Corrections</b> : les volumes 2023 et 2024 de Caléo (secteur de Guebwiller) sont publiés en GWh au lieu de MWh ; ils ont été multipliés par 1 000. Une évolution n'est calculée que si au moins deux années sont renseignées sur chaque période. Lorsqu'une part importante des volumes n'est rattachée à aucun secteur (Gaz de Barr notamment), seule l'évolution tous secteurs est affichée.</li>
+        <li><b>Climat</b> : les volumes ne sont pas corrigés de la météo. 2021 a été froide, 2023-2025 plus douces : une partie de la baisse du résidentiel tient au climat.</li>
+        <li><b>Distribution seulement</b> : les gros sites industriels raccordés directement au réseau de transport (Natran, environ 9 TWh par an, surtout à Chalampé et Ottmarsheim) sont exclus des totaux et signalés commune par commune.</li>
+        <li><b>Données incomplètes</b> : certains gestionnaires manquent certaines années (Trois Frontières en 2019, par exemple) et quelques volumes ne sont pas rattachés à un secteur. Les chiffres de l'Alsace sont calculés à périmètre constant (gestionnaires présents les 7 années).</li>
+        <li><b>Réseau</b> : seul le réseau GRDF est cartographié. Strasbourg, Colmar, Barr ou Saint-Louis sont desservies par d'autres gestionnaires (R-GDS, Vialis, Gaz de Barr…) dont le tracé n'est pas publié ici. Les indicateurs « densité énergétique » et « réseau par client » ne portent donc que sur les communes GRDF, et seulement sur les volumes et points de livraison GRDF.</li>
+        <li><b>Densité et réseau par client</b> : la longueur du réseau est celle du tracé actuel (aucun historique n'est publié) ; elle est appliquée à toutes les années, si bien que leur évolution ne reflète que celle des consommations et du nombre de clients. Lorsque le secret statistique masque une partie des données d'une commune, la densité est sous-estimée et le réseau par client surestimé : l'infobulle le signale.</li>
+      </ul>
+      <p class="note">Sources : Agence ORE, consommation annuelle d'électricité et de gaz par commune (2019-2025) ; GRDF, cartographie du réseau en service ; IGN/INSEE, contours des communes.</p>
+    </section>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script src="app.js"></script>

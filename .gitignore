@@ -1,0 +1,4 @@
+build/
+__pycache__/
+# sources lourdes : les retélécharger plutôt que les versionner
+donnees/sources/*.gz

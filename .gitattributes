@@ -1,0 +1,7 @@
+# scripts exécutés dans Docker ou WSL : toujours en fins de ligne Linux, même depuis Windows
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.py text eol=lf
+# fichiers binaires
+*.gpkg binary
+*.gz binary

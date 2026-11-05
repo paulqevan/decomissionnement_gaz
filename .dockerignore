@@ -1,0 +1,3 @@
+# rien à envoyer à Docker : le projet est monté en volume
+*
+!Dockerfile

@@ -1,0 +1,17 @@
+# docker compose up                     → carte sur http://localhost:8765
+# docker compose run --rm construire    → reconstruit tout depuis donnees/sources/
+services:
+  carte:
+    image: python:3.13-alpine
+    command: python -m http.server 8765 --directory /carte
+    ports:
+      - "${PORT:-8765}:8765"
+    volumes:
+      - ./carte:/carte:ro
+
+  construire:
+    build: .
+    profiles: [outils]   # ne démarre pas avec « docker compose up »
+    user: "${UID_HOTE:-1000}:${GID_HOTE:-1000}"   # fichiers produits au nom de l'utilisateur (Linux)
+    volumes:
+      - .:/projet
