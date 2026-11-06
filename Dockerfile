@@ -9,7 +9,7 @@ RUN apt-get update \
  && curl -fsSL https://download.qgis.org/downloads/qgis-archive-keyring.gpg -o /etc/apt/keyrings/qgis-archive-keyring.gpg \
  && echo "deb [signed-by=/etc/apt/keyrings/qgis-archive-keyring.gpg] https://qgis.org/debian resolute main" > /etc/apt/sources.list.d/qgis.list \
  && apt-get update \
- && apt-get install -y --no-install-recommends qgis qgis-plugin-grass python3-qgis python3-gdal \
+ && apt-get install -y --no-install-recommends qgis qgis-plugin-grass python3-qgis python3-gdal python3-openpyxl \
  && rm -rf /var/lib/apt/lists/*
 
 # qgis_process et PyQGIS écrivent un profil utilisateur : on le garde hors du projet

@@ -12,6 +12,7 @@ CARTE_DATA = os.path.join(RACINE, "carte", "data")
 SRC_COMMUNES = os.path.join(SOURCES, "communes-5m.geojson.gz")
 SRC_RESEAU = os.path.join(SOURCES, "cartographie-du-reseau-grdf-en-service.csv")
 SRC_CONSO = os.path.join(SOURCES, "consommation-annuelle-d-electricite-et-gaz-par-commune.csv")
+SRC_TEA = os.path.join(SOURCES, "Communes_TEA_INSEE.xlsx")
 
 DEPARTEMENTS = ("67", "68")
 ANNEES = list(range(2019, 2026))

@@ -41,6 +41,7 @@ scripts/           chaîne de construction, lancée dans l'ordre par construire.
   02_couches_qgis.py   réseau GRDF + consommations → couches du GeoPackage
   03_styles_qgis.py    styles QGIS par défaut + qgis/reseau_et_conso_gaz.qlr
   04_donnees_carte.py  données de la carte web → carte/data/*.json
+  05_territoire_tea.py territoire de TEA → carte/data/tea.json (openpyxl, ni GDAL ni QGIS)
 qgis/              GeoPackage et fichier de couches générés (glisser le .qlr dans QGIS)
 carte/             la carte web : index.html, style.css, app.js, data/
 build/             fichiers intermédiaires (géométries simplifiées), supprimable
@@ -54,6 +55,7 @@ Dockerfile, compose.yaml   environnement Docker (carte + construction)
 | `consommation-annuelle-d-electricite-et-gaz-par-commune.csv` | Agence ORE, consommation annuelle par commune (filtre gaz, 67/68) |
 | `cartographie-du-reseau-grdf-en-service.csv` | GRDF, réseau en service |
 | `communes-5m.geojson.gz` | Contours des communes (IGN Admin Express, généralisation 1:5M) |
+| `Communes_TEA_INSEE.xlsx` | TEA, liste des 390 communes membres |
 
 Correction appliquée dans `scripts/commun.py` : les volumes Caléo 2023 et 2024 sont publiés en
 GWh au lieu de MWh et sont multipliés par 1 000.
@@ -69,6 +71,22 @@ tracé actuel, appliquée à toutes les années. Les années où le secret stati
 partie des données sont signalées sur la carte. Pour couvrir les autres gestionnaires (R-GDS,
 Vialis…), voir le jeu « Infrastructures de réseau de gaz » de l'Agence ORE sur data.gouv.fr.
 
+## Territoire de TEA
+
+Le filtre « Territoire » limite à TEA les chiffres clés, la carte, le réseau affiché, la
+recherche et le classement. Après une mise à jour de `Communes_TEA_INSEE.xlsx`, seul
+`python3 scripts/05_territoire_tea.py` est à relancer (avec `pip install openpyxl` hors Docker).
+Le total TEA est à périmètre constant, comme celui de l'Alsace.
+
+## Couleurs
+
+- **Rouge et vert sont réservés aux évolutions** : baisse en rouge, hausse en vert, sur la carte,
+  les chiffres et le classement (`evo()` dans `app.js`, jetons `--baisse`, `--hausse`, `--d*`).
+  Flèche et signe accompagnent toujours la couleur. Le vert émeraude est choisi pour rester
+  distinct du rouge pour les personnes daltoniennes.
+- **Bleu** pour les grandeurs sans hausse ni baisse (jetons `--q1` à `--q5`).
+- **Secteurs** en bleu, ambre, violet et gris (`--s-*`), sans rouge ni vert.
+
 ## Ajouter des données sur la carte
 
 ### Un nouvel indicateur (couleur des communes)
@@ -76,8 +94,9 @@ Vialis…), voir le jeu « Infrastructures de réseau de gaz » de l'Agence ORE 
 1. Dans `scripts/04_donnees_carte.py`, ajouter la valeur par commune au dictionnaire
    `communes[c]` (ou à `meta`) si elle n'y est pas déjà.
 2. Dans `carte/app.js`, ajouter une entrée à `INDICATEURS` : libellé, unité, seuils,
-   couleurs (jetons CSS de `style.css`, une de plus que de seuils) et la fonction
-   `valeur(c)`. Le bouton « Afficher » est créé automatiquement.
+   couleurs (jetons CSS de `style.css`, une de plus que de seuils), la fonction
+   `valeur(c)`, les `bornes` de la légende, la phrase `lecture()` et le `classement`.
+   Le bouton « Afficher » est créé automatiquement.
 
 ### Une nouvelle couche linéaire (réseau, canalisations, routes…)
 

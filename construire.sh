@@ -8,16 +8,16 @@ GPKG=qgis/communes_alsace.gpkg
 export PYTHONPATH="/usr/share/qgis/python${PYTHONPATH:+:$PYTHONPATH}"
 export QT_QPA_PLATFORM=offscreen   # PyQGIS sans fenêtre
 
-echo "1/5 Communes du 67 et du 68"
+echo "1/6 Communes du 67 et du 68"
 python3 scripts/01_communes.py
 
-echo "2/5 Couches réseau et consommations dans $GPKG"
+echo "2/6 Couches réseau et consommations dans $GPKG"
 python3 scripts/02_couches_qgis.py
 
-echo "3/5 Styles QGIS"
+echo "3/6 Styles QGIS"
 python3 scripts/03_styles_qgis.py 2>&1 | grep -v -e "^QStandardPaths" -e "^QThreadStorage" || true
 
-echo "4/5 Simplification des géométries pour le web (GRASS, topologie conservée)"
+echo "4/6 Simplification des géométries pour le web (GRASS, topologie conservée)"
 mkdir -p build
 qgis_process plugins enable grassprovider >/dev/null 2>&1 || true   # désactivé dans un profil neuf (Docker)
 simplifier() {  # couche, seuil en mètres, sortie
@@ -28,7 +28,10 @@ simplifier() {  # couche, seuil en mètres, sortie
 simplifier communes 40 communes_simpl
 simplifier reseau_grdf 12 reseau_simpl
 
-echo "5/5 Données de la carte (carte/data/)"
+echo "5/6 Données de la carte (carte/data/)"
 python3 scripts/04_donnees_carte.py
+
+echo "6/6 Territoire de TEA (carte/data/tea.json)"
+python3 scripts/05_territoire_tea.py
 
 echo "Terminé. Lancer la carte : ./lancer_carte.sh"
