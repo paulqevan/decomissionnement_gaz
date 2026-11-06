@@ -54,6 +54,7 @@
     <div class="mapbox" id="mapbox">
       <svg id="map" role="img" aria-label="Carte des communes d'Alsace"></svg>
       <canvas id="netCanvas"></canvas>
+      <svg id="mapTop" aria-hidden="true"></svg>
       <div class="zoombtns"><button id="zin" aria-label="Zoomer">+</button><button id="zout" aria-label="Dézoomer">−</button><button id="zreset" aria-label="Vue d'ensemble">⤢</button></div>
       <div class="tip" id="tip" hidden></div>
     </div>
@@ -69,10 +70,18 @@
       <ol class="rank" id="rank"></ol>
       <p class="vide" id="rankVide" hidden></p>
     </section>
+    <section class="classement" aria-live="polite">
+      <h2>Les points d'injection qui ancrent le réseau</h2>
+      <p class="note" id="sitesNote"></p>
+      <ol class="rank" id="sitesListe"></ol>
+    </section>
     <details class="method">
       <summary>Méthode et limites</summary>
       <ul>
         <li><b>Territoire de TEA</b> : les 390 communes de la liste Communes_TEA_INSEE (membres directs ou via leur EPCI). Les chiffres d'ensemble sont calculés à périmètre constant, comme ceux de l'Alsace.</li>
+        <li><b>Biométhane</b> : la comparaison entre le gaz injecté et la consommation de la commune est une lecture proposée ici, pas un critère réglementaire. Un site qui injecte plus que sa commune ne consomme a besoin du réseau pour évacuer son gaz. Une commune sans consommation publiée peut aussi relever du secret statistique.</li>
+        <li><b>Réseaux de chaleur</b> : sont comptés comme solution de remplacement les réseaux produisant moins de 50 % de leur chaleur au gaz et desservant au moins 3 clients, ainsi que les zones de développement prioritaire et les projets. Le gaz affiché est un maximum : tous les bâtiments d'une commune ne sont pas raccordables, et la présence d'un réseau ne dit rien de sa capacité disponible.</li>
+        <li><b>Revenus</b> : revenu médian disponible par unité de consommation en 2021. Le seuil de 23 000 € correspond à peu près aux 10 % de communes alsaciennes les plus modestes ; c'est un repère, pas un critère d'éligibilité. Une médiane communale masque les écarts entre quartiers.</li>
         <li><b>Évolution</b> : moyenne 2023-2025 comparée à la moyenne 2019-2021, ce qui lisse les écarts de météo d'une année sur l'autre. Seuls les gestionnaires présents sur les deux périodes sont comparés, pour ne pas confondre une donnée manquante avec une baisse.</li>
         <li><b>Corrections</b> : les volumes 2023 et 2024 de Caléo (secteur de Guebwiller) sont publiés en GWh au lieu de MWh ; ils ont été multipliés par 1 000. Une évolution n'est calculée que si au moins deux années sont renseignées sur chaque période. Lorsqu'une part importante des volumes n'est rattachée à aucun secteur (Gaz de Barr notamment), seule l'évolution tous secteurs est affichée.</li>
         <li><b>Climat</b> : les volumes ne sont pas corrigés de la météo. 2021 a été froide, 2023-2025 plus douces : une partie de la baisse du résidentiel tient au climat.</li>
@@ -81,7 +90,7 @@
         <li><b>Réseau</b> : seul le réseau GRDF est cartographié. Strasbourg, Colmar, Barr ou Saint-Louis sont desservies par d'autres gestionnaires (R-GDS, Vialis, Gaz de Barr…) dont le tracé n'est pas publié ici. Les indicateurs « densité énergétique » et « réseau par client » ne portent donc que sur les communes GRDF, et seulement sur les volumes et points de livraison GRDF.</li>
         <li><b>Densité et réseau par client</b> : la longueur du réseau est celle du tracé actuel (aucun historique n'est publié) ; elle est appliquée à toutes les années, si bien que leur évolution ne reflète que celle des consommations et du nombre de clients. Lorsque le secret statistique masque une partie des données d'une commune, la densité est sous-estimée et le réseau par client surestimé : l'infobulle le signale.</li>
       </ul>
-      <p class="note">Sources : Agence ORE, consommation annuelle d'électricité et de gaz par commune (2019-2025) ; GRDF, cartographie du réseau en service ; IGN/INSEE, contours des communes ; TEA, liste des communes membres.</p>
+      <p class="note">Sources : Agence ORE, consommation annuelle d'électricité et de gaz par commune (2019-2025) ; GRDF, cartographie du réseau en service ; IGN/INSEE, contours des communes ; TEA, liste des communes membres ; capacité et quantité d'injection de biométhane ; France Chaleur Urbaine, réseaux de chaleur (octobre 2026) ; revenu des Français à la commune (2021).</p>
     </details>
   </div>
 </div>

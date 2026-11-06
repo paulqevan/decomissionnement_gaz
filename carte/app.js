@@ -15,6 +15,9 @@ function evo(v, f = fmt0) {
 }
 const SEUIL_CLASSEMENT = 5000;   // MWh par an : écarte les petits volumes, où les pourcentages n'ont pas de sens
 const NB_CLASSEMENT = 12;
+const CHALEUR_SURTOUT_GAZ = 50;   // % de gaz dans la production : au-delà, le réseau de chaleur dépend du gaz
+const CHALEUR_MIN_CLIENTS = 3;    // en dessous, réseau dédié à un site, pas une solution pour un quartier
+const REVENU_MODESTE = 23000;     // € par an : environ les 10 % de communes alsaciennes les plus modestes
 
 /* ---------- couches linéaires superposées ----------
    Ajouter une couche : produire data/<id>.json avec exporter_lignes() dans
@@ -23,9 +26,15 @@ const NB_CLASSEMENT = 12;
 const COUCHES = [
   { id: "reseau", label: "Réseau GRDF", fichier: "data/reseau.json", couleur: "--net", epaisseur: 1, actif: true },
 ];
+// couches interactives (survol, clic), dessinées par buildTransition()
+const SURCOUCHES = [
+  { id: "biomethane", label: "Sites de biométhane", actif: true },
+  { id: "chaleur", label: "Réseaux de chaleur", actif: true },
+];
+const surcouche = id => SURCOUCHES.find(l => l.id === id).actif;
 
 const state = { terr: "alsace", mode: "evol", sect: "tot", year: 2025, sel: null, filtre: false };
-let D, META, CONSO, YEARS, TEA, paths, gMap, zoom, proj, transform = d3.zoomIdentity;
+let D, META, CONSO, YEARS, TEA, TR, paths, gMap, zoom, proj, transform = d3.zoomIdentity;
 
 /* ---------- territoires ---------- */
 const TERRITOIRES = {
@@ -65,6 +74,23 @@ const notePartiel = c => reseauGRDF(c, YEARS.indexOf(state.year))?.partiel ? "Do
    - filtre : { label, garder(v) } ajoute une case qui estompe les communes où garder(v) est faux
    - bornes : mots aux deux extrémités de la légende ; lecture() : phrase d'explication au-dessus de la carte
    - classement : { titre(), note(), ordre (1 = plus petites valeurs d'abord), garder(c, v), detail(c), court(v) } */
+/* ---------- lecture du décommissionnement : ancrage, substitution, accompagnement ---------- */
+const gazDistribue = c => (CONSO[c]?.n?.[6] || 0) > 0;
+const surtoutGaz = r => r.gaz != null && r.gaz >= CHALEUR_SURTOUT_GAZ;
+const clientUnique = r => r.pdl != null && r.pdl < CHALEUR_MIN_CLIENTS;
+const chaleurUtile = r => !surtoutGaz(r) && !clientUnique(r);
+const chaleurDe = c => TR.parCommune[c] || { reseaux: [], zone: false, projets: [] };
+const substitutionPossible = c => { const h = chaleurDe(c); return h.reseaux.some(chaleurUtile) || h.zone || h.projets.length > 0; };
+const gazBatiments = c => { const i = YEARS.indexOf(state.year); return d3.sum(["R", "T"], k => CONSO[c]?.s?.[k]?.[i] || 0); };
+// un site qui injecte plus que sa commune ne consomme a besoin du réseau pour évacuer son gaz
+function ancrageSite(s) {
+  const conso = total(s.c, YEARS.indexOf(s.annee));
+  if (!conso) return { fort: true, texte: "Aucune consommation publiée dans la commune : gaz probablement évacué ailleurs" };
+  const ratio = s.mwh / conso;
+  return ratio > 1
+    ? { fort: true, texte: `Injecte ${fmt1.format(ratio)} fois ce que la commune consomme` }
+    : { fort: false, texte: `Injecte ${fmt0.format(ratio * 100)} % de ce que la commune consomme` };
+}
 const nomSecteur = () => state.sect === "tot" ? "" : { R: " dans le résidentiel", T: " dans le tertiaire", I: " dans l'industrie" }[state.sect];
 const moyennePeriode = (c, idx) => mean(YEARS.map((y, i) => sectVal(c, state.sect, i)), idx);
 const noteClic = "Cliquer sur une commune pour la situer sur la carte.";
@@ -127,6 +153,39 @@ const INDICATEURS = {
     },
     valeur: lineaire, texte: v => fmt0.format(v) + " m de réseau par client", note: notePartiel,
   },
+  revenus: {
+    label: "Revenus", unite: "milliers d'€ par an", vide: "Non publié (secret statistique)",
+    titre: () => "Revenu médian disponible en 2021",
+    seuils: [23000, 25000, 27000, 30000], couleurs: ["--q5", "--q4", "--q3", "--q2", "--q1"], graduations: ["23", "25", "27", "30"],
+    bornes: ["Modestes", "Aisés"],
+    lecture: () => `<b>Plus le bleu est foncé, plus les revenus sont modestes :</b> ces communes auront davantage besoin d'aides si le gaz doit être remplacé.`,
+    valeur: c => TR.revenus[c]?.[0] ?? null, texte: v => fmt0.format(v) + " € par an (revenu médian)",
+    filtre: { label: "Seulement les communes au gaz", garder: (v, c) => gazDistribue(c) },
+    classement: {
+      titre: () => "Où les revenus sont les plus modestes parmi les communes au gaz",
+      note: () => "Revenu médian disponible par unité de consommation en 2021, pour les communes ayant des points de livraison de gaz.",
+      ordre: 1, garder: c => gazDistribue(c),
+      detail: c => `${fmt0.format(CONSO[c].n[6])} points de livraison de gaz`, court: v => fmt0.format(v) + " €",
+    },
+  },
+  chaleur: {
+    label: "Réseau de chaleur", annee: true, unite: "GWh", vide: "Pas de réseau de chaleur utilisable ou pas de gaz",
+    titre: () => `Gaz des logements et du tertiaire en ${state.year}, là où un réseau de chaleur existe ou est prévu`,
+    seuils: [1000, 5000, 20000, 100000], couleurs: ["--q1", "--q2", "--q3", "--q4", "--q5"], graduations: ["1", "5", "20", "100"],
+    bornes: ["Faible", "Fort"],
+    lecture: () => `<b>Les communes en bleu ont un réseau de chaleur, une zone prioritaire ou un projet.</b> Plus le bleu est foncé, plus il y a de gaz à remplacer dans les logements et le tertiaire. C'est un maximum, pas un objectif.`,
+    valeur: c => { if (!substitutionPossible(c)) return null; const v = gazBatiments(c); return v > 0 ? v : null; }, texte: v => gwh(v) + " de gaz dans les bâtiments",
+    classement: {
+      titre: () => "Où un réseau de chaleur peut remplacer le plus de gaz",
+      note: () => `Gaz des logements et du tertiaire en ${state.year}. Sont exclus les réseaux surtout alimentés au gaz et ceux qui desservent moins de ${CHALEUR_MIN_CLIENTS} clients.`,
+      ordre: -1, garder: () => true,
+      detail: c => {
+        const h = chaleurDe(c), n = h.reseaux.filter(chaleurUtile).length;
+        return [n ? `${n} réseau${n > 1 ? "x" : ""}` : "", h.zone ? "zone prioritaire" : "", h.projets.length ? "projet en cours" : ""].filter(Boolean).join(" · ");
+      },
+      court: gwh,
+    },
+  },
 };
 const ind = () => INDICATEURS[state.mode];
 const value = c => ind().valeur(c);
@@ -136,7 +195,7 @@ function colorOf(v) {
   return css(s.couleurs[i]);
 }
 // commune estompée par le filtre de l'indicateur (valeur connue mais hors critère)
-const filtree = c => { const f = ind().filtre, v = value(c); return !!(f && state.filtre && v != null && !f.garder(v)); };
+const filtree = c => { const f = ind().filtre, v = value(c); return !!(f && state.filtre && v != null && !f.garder(v, c)); };
 function valueText(c) { const v = value(c); return v == null ? ind().vide : ind().texte(v); }
 
 /* ---------- carte ---------- */
@@ -145,11 +204,13 @@ function drawLegend() {
   const couches = COUCHES.filter(l => l.actif).map(l => `<span><i style="height:2px;background:var(${l.couleur})"></i>${l.label}</span>`).join("");
   let filtre = "";
   if (s.filtre && state.filtre) {
-    const n = communesTerritoire().filter(c => { const v = value(c); return v != null && s.filtre.garder(v); }).length;
+    const n = communesTerritoire().filter(c => { const v = value(c); return v != null && s.filtre.garder(v, c); }).length;
     filtre = `<span><i class="case" style="background:var(--nodata);opacity:.35"></i>Hors filtre</span><span><b>${n}</b>&nbsp;communes retenues</span>`;
   }
   const hors = state.terr === "tea" ? `<span><i style="height:0;border-top:2px solid var(--accent)"></i>Limite de TEA</span>` : "";
-  const extra = `<div class="extra"><span><i class="case" style="background:var(--nodata)"></i>${s.vide}</span>${filtre}${hors}${couches}<span><i style="height:0;border-top:1.5px dashed var(--ink-2)"></i>Limite départementale</span></div>`;
+  const transition = (surcouche("biomethane") ? `<span><i class="losange" style="background:var(--biomethane)"></i>Biométhane : injecte plus que la commune ne consomme</span><span><i class="losange" style="background:var(--surface)"></i>Biométhane : consommé sur place</span>` : "")
+    + (surcouche("chaleur") ? `<span><i style="height:0;border-top:2.5px solid var(--chaleur)"></i>Réseau de chaleur</span><span><i style="height:0;border-top:2px dotted var(--chaleur)"></i>Chaleur surtout au gaz ou réseau dédié</span><span><i style="height:0;border-top:2px dashed var(--chaleur)"></i>Projet</span><span><i class="case" style="background:color-mix(in srgb, var(--chaleur) 22%, transparent)"></i>Zone de développement prioritaire</span>` : "");
+  const extra = `<div class="extra"><span><i class="case" style="background:var(--nodata)"></i>${s.vide}</span>${filtre}${hors}${transition}${couches}<span><i style="height:0;border-top:1.5px dashed var(--ink-2)"></i>Limite départementale</span></div>`;
   const large = s.couleurs.length * 36 - 2;
   document.getElementById("legend").innerHTML = `<h4>${s.titre()} (${s.unite})</h4>
     <div class="bornes" style="width:${large}px"><span>${s.bornes[0]}</span><span>${s.bornes[1]}</span></div>
@@ -160,7 +221,7 @@ function recolor() {
   paths.classed("hors", d => !dansTerritoire(d.code))
     .attr("fill", d => !dansTerritoire(d.code) ? css("--hors") : filtree(d.code) ? css("--nodata") : colorOf(value(d.code)))
     .attr("fill-opacity", d => dansTerritoire(d.code) && filtree(d.code) ? .35 : null);
-  drawLegend(); renderRank();
+  drawLegend(); renderRank(); renderSites(); majSurcouches();
   document.getElementById("lecture").innerHTML = ind().lecture();
   document.getElementById("ctlYear").hidden = !ind().annee;
   document.getElementById("ctlSect").hidden = !ind().secteurs;
@@ -212,12 +273,77 @@ function buildMap(geo) {
   data.filter(d => TEA.codes.has(d.code)).forEach(d => buildMap.clipTEA.addPath(new Path2D(d.d)));
   buildMap.feTEA = feTEA;
   gMap.append("path").attr("class", "selpath").attr("id", "selpath");
-  zoom = d3.zoom().scaleExtent([1, 24]).translateExtent([[0, 0], [W, H]]).on("zoom", ev => { transform = ev.transform; gMap.attr("transform", transform); drawCouches(); });
+  zoom = d3.zoom().scaleExtent([1, 24]).translateExtent([[0, 0], [W, H]]).on("zoom", ev => { transform = ev.transform; gMap.attr("transform", transform); majEchelle(); drawCouches(); });
   svg.call(zoom).on("dblclick.zoom", null);
   d3.select("#zin").on("click", () => svg.transition().call(zoom.scaleBy, 1.8));
   d3.select("#zout").on("click", () => svg.transition().call(zoom.scaleBy, 1 / 1.8));
   d3.select("#zreset").on("click", vueTerritoire);
   buildMap.gp = gp; buildMap.byCode = byCode; buildMap.svg = svg; buildMap.W = W; buildMap.H = H;
+}
+/* ---------- biométhane et réseaux de chaleur ---------- */
+const textesReseau = r => [
+  r.km ? fmt1.format(r.km) + " km" : "", r.pdl != null ? `${fmt0.format(r.pdl)} client${r.pdl > 1 ? "s" : ""}` : "",
+  r.enr != null ? `${fmt0.format(r.enr)} % d'énergies renouvelables` : "", r.gaz != null ? `${fmt0.format(r.gaz)} % de gaz` : "",
+].filter(Boolean).join(" · ") || "Caractéristiques non renseignées";
+const avisReseau = r => surtoutGaz(r) ? "Dépend du gaz : ne le remplace pas en l'état" : clientUnique(r) ? "Réseau dédié à un site" : "Solution de remplacement possible";
+const tipReseau = r => `<b>${r.nom}</b>${avisReseau(r)}<br><span class="m">${textesReseau(r)}</span>`;
+const tipSite = s => `<b>${s.nom}</b>${META[s.c][0]} · ${gwh(s.mwh)} injectés en ${s.annee}<br><span class="m">${ancrageSite(s).texte}<br>${fmt0.format(s.cap)} Nm³/h · en service depuis ${s.date}</span>`;
+const premiereCommune = codes => codes.find(dansTerritoire) ?? codes[0];
+function buildTransition() {
+  const { q, reseaux, zones, projets } = TR.chaleur, gp = buildMap.gp;
+  TR.parCommune = {};
+  const fiche = c => TR.parCommune[c] ??= { reseaux: [], zone: false, projets: [] };
+  reseaux.forEach(r => r.c.forEach(c => fiche(c).reseaux.push(r)));
+  zones.forEach(z => z.c.forEach(c => fiche(c).zone = true));
+  projets.forEach(p => p.c.forEach(c => fiche(c).projets.push(p)));
+
+  const lignes = l => gp({ type: "MultiLineString", coordinates: l.map(x => decode(x, q)) });
+  const surface = l => gp({ type: "Polygon", coordinates: l.map(x => decode(x, q)) });
+  // zones sous le réseau GRDF ; traits et marques au-dessus, dans un second SVG aligné sur le premier
+  const dessous = gMap.insert("g", "#selpath").attr("class", "zones");
+  buildMap.zones = dessous.selectAll("path").data([...zones, ...projets.filter(p => p.zone)]).join("path")
+    .attr("class", d => d.zone ? "zone projet" : "zone").attr("d", d => surface(d.l));
+
+  const top = d3.select("#mapTop").attr("viewBox", `0 0 ${buildMap.W} ${buildMap.H}`);
+  buildMap.gTop = top.append("g");
+  const traces = [...reseaux.filter(r => r.l), ...projets.filter(p => !p.zone).map(p => ({ ...p, projet: true }))];
+  buildMap.traits = buildMap.gTop.selectAll("g.trace").data(traces).join("g")
+    .attr("class", d => "trace" + (d.projet ? " projet" : chaleurUtile(d) ? "" : " limite"));
+  buildMap.traits.each(function (d) {
+    const g = d3.select(this), chemin = lignes(d.l);
+    g.append("path").attr("class", "ch-case").attr("d", chemin);
+    g.append("path").attr("class", "ch-trait").attr("d", chemin);
+    g.append("path").attr("class", "ch-hit").attr("d", chemin);
+  });
+  const texteTrace = d => d.projet ? `<b>Projet de réseau de chaleur</b>${d.gest || "Gestionnaire non renseigné"}<br><span class="m">Mise en service prévue : ${d.date || "non renseignée"}</span>` : tipReseau(d);
+  buildMap.traits.selectAll(".ch-hit")
+    .on("mousemove", function (ev) { placerTip(ev, texteTrace(d3.select(this.parentNode).datum())); }).on("mouseleave", hideTip)
+    .on("click", function () { select(premiereCommune(d3.select(this.parentNode).datum().c), true); });
+
+  const position = (d, x, y) => { [d.px, d.py] = proj([x, y]); return d; };
+  buildMap.points = buildMap.gTop.selectAll("g.pt-chaleur").data(reseaux.filter(r => r.pt).map(r => position(r, ...r.pt))).join("g")
+    .attr("class", d => "marque pt-chaleur" + (chaleurUtile(d) ? "" : " limite"));
+  buildMap.points.append("rect").attr("x", -4).attr("y", -4).attr("width", 8).attr("height", 8).attr("rx", 1.5);
+  const taille = s => 6 + 8 * Math.sqrt(s.mwh / d3.max(TR.biomethane, x => x.mwh));
+  buildMap.sites = buildMap.gTop.selectAll("g.site").data(TR.biomethane.map(s => position(s, s.x, s.y))).join("g")
+    .attr("class", d => "marque site");
+  buildMap.sites.append("path").attr("d", d => { const r = taille(d); return `M0 ${-r}L${r} 0L0 ${r}L${-r} 0Z`; });
+  for (const [sel, texte, commune] of [[buildMap.points, tipReseau, d => premiereCommune(d.c)], [buildMap.sites, tipSite, d => d.c]])
+    sel.on("mousemove", (ev, d) => placerTip(ev, texte(d))).on("mouseleave", hideTip).on("click", (ev, d) => select(commune(d), true));
+  majEchelle();
+}
+function majEchelle() {
+  buildMap.gTop?.attr("transform", transform);
+  // les marques gardent la même taille à l'écran quel que soit le zoom
+  for (const m of [buildMap.points, buildMap.sites]) m?.attr("transform", d => `translate(${d.px},${d.py}) scale(${1 / transform.k})`);
+}
+function majSurcouches() {
+  const visible = (d, id) => surcouche(id) && (d.c.some(dansTerritoire));
+  buildMap.sites.attr("display", d => surcouche("biomethane") && dansTerritoire(d.c) ? null : "none")
+    .classed("local", d => !ancrageSite(d).fort);
+  buildMap.traits.attr("display", d => visible(d, "chaleur") ? null : "none");
+  buildMap.points.attr("display", d => visible(d, "chaleur") ? null : "none");
+  buildMap.zones.attr("display", d => visible(d, "chaleur") ? null : "none");
 }
 function lignesEnChemin(data) {
   const path = new Path2D();
@@ -262,10 +388,13 @@ function depBoundary(feats, gp) {
 const tip = document.getElementById("tip");
 function showTip(ev, c) {
   paths.classed("hover", d => d.code === c);
-  const box = document.getElementById("mapbox").getBoundingClientRect();
   const m = META[c];
   const note = ind().note?.(c), extra = note ? `<span class="m">${note}</span>` : "";
-  tip.innerHTML = `<b>${m[0]}</b>${valueText(c)}${filtree(c) ? " · hors filtre" : ""}${extra ? "<br>" + extra : ""}<br><span class="m">${m[3] ? fmt1.format(m[3]) + " km de réseau GRDF" : "Pas de réseau GRDF"}</span>`;
+  placerTip(ev, `<b>${m[0]}</b>${valueText(c)}${filtree(c) ? " · hors filtre" : ""}${extra ? "<br>" + extra : ""}<br><span class="m">${m[3] ? fmt1.format(m[3]) + " km de réseau GRDF" : "Pas de réseau GRDF"}</span>`);
+}
+function placerTip(ev, html) {
+  const box = document.getElementById("mapbox").getBoundingClientRect();
+  tip.innerHTML = html;
   tip.hidden = false;
   let x = ev.clientX - box.left + 14, y = ev.clientY - box.top + 14;
   if (x + 260 > box.width) x -= 280; if (y + 90 > box.height) y -= 100;
@@ -352,6 +481,50 @@ function tableReseau(c) {
 const evolution = arr => 100 * (mean(arr, [4, 5, 6]) / mean(arr, [0, 1, 2]) - 1);
 const totaux = A => YEARS.map((y, i) => d3.sum(SKEYS, k => A[k][i]));
 
+function syntheseTerritoire() {
+  const A = terr().serie(), codes = communesTerritoire();
+  const sites = TR.biomethane.filter(s => dansTerritoire(s.c)), injecte = d3.sum(sites, s => s.mwh);
+  const distribue = d3.sum(SKEYS, k => A[k][6]);
+  const reseaux = TR.chaleur.reseaux.filter(r => r.c.some(dansTerritoire)), utiles = reseaux.filter(chaleurUtile).length;
+  const projets = TR.chaleur.projets.filter(p => p.c.some(dansTerritoire)).length;
+  const modestes = codes.filter(c => gazDistribue(c) && TR.revenus[c]?.[0] < REVENU_MODESTE);
+  return `<div class="decide"><h3>Pour décider</h3>
+    <div class="item"><b>Ancrage</b><p>${sites.length} sites de biométhane, ${gwh(injecte)} injectés en 2025, soit ${fmt1.format(100 * injecte / distribue)} % du gaz distribué.</p></div>
+    <div class="item"><b>Substitution</b><p>${utiles} réseaux de chaleur utilisables sur ${reseaux.length}, et ${projets} projets.</p></div>
+    <div class="item"><b>Accompagnement</b><p>${modestes.length} communes au gaz ont un revenu médian sous ${fmt0.format(REVENU_MODESTE)} €, avec ${fmt0.format(d3.sum(modestes, c => CONSO[c].n[6]))} points de livraison.</p></div>
+  </div>`;
+}
+// les trois questions à se poser pour une commune
+function pourDecider(c) {
+  const sites = TR.biomethane.filter(s => s.c === c), h = chaleurDe(c), rev = TR.revenus[c];
+  const dependants = h.reseaux.filter(surtoutGaz), utiles = h.reseaux.filter(chaleurUtile);
+  const t25 = total(c, 6), industrie = t25 && (CONSO[c]?.s?.I?.[6] || 0) / t25 > .5;
+  const ancrage = [
+    ...sites.map(s => `Biométhane : <b>${s.nom}</b>, ${gwh(s.mwh)} injectés en ${s.annee}. ${ancrageSite(s).texte}.`),
+    ...dependants.map(r => `Réseau de chaleur alimenté au gaz : <b>${r.nom}</b> (${fmt0.format(r.gaz)} %).`),
+    ...(industrie ? ["Plus de la moitié du gaz va à l'industrie."] : []),
+  ];
+  const substitution = [
+    ...utiles.map(r => `<b>${r.nom}</b> : ${textesReseau(r)}.`),
+    ...(h.zone ? ["Zone de développement prioritaire d'un réseau de chaleur."] : []),
+    ...h.projets.map(p => `Projet de réseau${p.gest ? " (" + p.gest + ")" : ""}, mise en service prévue : ${p.date || "non renseignée"}.`),
+  ];
+  let revenu = "Revenu non publié (secret statistique).";
+  if (rev) {
+    const repere = d3.median(communesTerritoire(), x => TR.revenus[x]?.[0]);
+    const ecart = 100 * (rev[0] / repere - 1);
+    revenu = `Revenu médian de <b>${fmt0.format(rev[0])} € par an</b>, ${stable(ecart, fmt0) ? "au niveau de" : `${fmt0.format(Math.abs(ecart))} % ${ecart < 0 ? "sous" : "au-dessus de"}`} la commune médiane du territoire.`
+      + (rev[1] ? ` Les 10 % les plus modestes vivent avec moins de ${fmt0.format(rev[1])} €.` : "")
+      + (rev[0] < REVENU_MODESTE ? " <b>Aides à prévoir en priorité.</b>" : "");
+  }
+  const liste = (l, vide) => l.length ? l.map(x => `<p>${x}</p>`).join("") : `<p class="rien">${vide}</p>`;
+  return `<div class="decide"><h3>Pour décider</h3>
+    <div class="item"><b>Ancrage</b>${liste(ancrage, "Aucun site de biométhane ni chaleur au gaz recensé ici.")}</div>
+    <div class="item"><b>Substitution</b>${liste(substitution, "Aucun réseau de chaleur utilisable recensé ici.")}</div>
+    <div class="item"><b>Accompagnement</b><p>${revenu}</p></div>
+  </div>`;
+}
+
 function renderTerritoire() {
   const p = document.getElementById("panel"), A = terr().serie(), nom = terr().nom;
   p.innerHTML = `<div><div class="eyebrow">${nom}</div><h2>Gaz distribué par secteur</h2><p class="sub">Périmètre constant, hors réseau de transport. Cliquer une commune sur la carte pour son détail.</p></div>
@@ -363,6 +536,7 @@ function renderTerritoire() {
   </div>
   <div class="chart"><h3>Consommation annuelle</h3><div id="ch"></div>${keyRow()}</div>
   <p class="note">En 2019, une partie des volumes n'était pas rattachée à un secteur (classée « Autres ») : la hausse apparente du tertiaire en 2020 vient en partie de ce reclassement.</p>
+  ${syntheseTerritoire()}
   ${table(A, terr().sites())}`;
   p.querySelector("#ch").append(stackChart(A, { label: `Consommation de gaz par secteur, 2019-2025 : ${nom}` }));
   p.append(tip2); p.style.position = "relative";
@@ -372,7 +546,7 @@ function renderCommune(c) {
   const p = document.getElementById("panel"), m = META[c], d = CONSO[c] || {};
   const head = `<button class="back" id="back">← ${terr().nom}</button><div><div class="eyebrow">${m[1] === "67" ? "Bas-Rhin" : "Haut-Rhin"}${m[2] ? " · " + m[2] : ""}</div><h2>${m[0]}</h2></div>`;
   if (!d.s) {
-    p.innerHTML = head + `<p>Aucune consommation de gaz distribué n'est publiée pour cette commune.</p>${d.t ? `<div class="chips"><span class="chip sig">Site(s) raccordé(s) au transport : ${gwh(d.t[6])} en 2025</span></div>` : ""}<div class="facts"><div class="fact"><span>Réseau GRDF</span><b>${m[3] ? fmt1.format(m[3]) + " km" : "—"}</b></div></div>`;
+    p.innerHTML = head + `<p>Aucune consommation de gaz distribué n'est publiée pour cette commune.</p>${d.t ? `<div class="chips"><span class="chip sig">Site(s) raccordé(s) au transport : ${gwh(d.t[6])} en 2025</span></div>` : ""}<div class="facts"><div class="fact"><span>Réseau GRDF</span><b>${m[3] ? fmt1.format(m[3]) + " km" : "—"}</b></div></div>${pourDecider(c)}`;
   } else {
     const i25 = 6, t25 = total(c, i25), e = d.e || {};
     const r25 = reseauGRDF(c, i25), dens = r25 ? r25.mwh / r25.m : null, lin = r25?.n ? r25.m / r25.n : null;
@@ -398,6 +572,7 @@ function renderCommune(c) {
       <div class="fact"><span>Points de livraison 2025</span><b>${fmt0.format(s1)}</b>${s0 && s1 ? `<span>${evo(100 * (s1 / s0 - 1))} depuis ${YEARS[d.n.indexOf(s0)]}</span>` : ""}</div>
       <div class="fact"><span>Réseau GRDF</span><b>${m[3] ? fmt1.format(m[3]) + " km" : "—"}</b>${dens != null ? `<span>${fmt2.format(dens)} MWh/m${lin ? ` · ${fmt0.format(lin)} m par client` : ""} en 2025</span>` : `<span>${d.o.filter(o => o !== "GRDF").join(", ") || ""}</span>`}</div>
     </div>
+    ${pourDecider(c)}
     ${chips.length ? `<div class="chips">${chips.map(([k, t]) => `<span class="chip ${k}">${t}</span>`).join("")}</div>` : ""}
     <div class="chart"><h3>Consommation par secteur</h3><div id="ch"></div>${keyRow()}</div>
     <p class="note">Gestionnaire(s) : ${d.o.join(", ")}.</p>
@@ -443,6 +618,17 @@ function renderRank() {
   rank.querySelectorAll("button").forEach(b => b.onclick = () => { select(b.dataset.c, true); document.getElementById("mapbox").scrollIntoView({ behavior: "smooth", block: "center" }); });
 }
 
+// sites d'injection du territoire : ceux qui ont besoin du réseau au-delà de leur commune d'abord
+function renderSites() {
+  const sites = TR.biomethane.filter(s => dansTerritoire(s.c))
+    .sort((a, b) => ancrageSite(b).fort - ancrageSite(a).fort || b.mwh - a.mwh);
+  const forts = sites.filter(s => ancrageSite(s).fort).length, mx = d3.max(sites, s => s.mwh);
+  document.getElementById("sitesNote").textContent = `${terr().communes} · ${forts} sites sur ${sites.length} injectent plus que leur commune ne consomme, ou se trouvent dans une commune sans consommation publiée. Le réseau doit alors évacuer ce gaz ailleurs, ce qui rend son retrait plus difficile. Cliquer sur un site pour le situer sur la carte.`;
+  const liste = document.getElementById("sitesListe");
+  liste.innerHTML = sites.map((s, i) => `<li><button data-c="${s.c}"><span class="i">${i + 1}</span><span>${s.nom}<small>${META[s.c][0]} · depuis ${s.date} · ${ancrageSite(s).texte}</small></span><span class="bar" style="width:${Math.max(4, s.mwh / mx * 100)}%;background:var(--biomethane)"></span><span class="v">${gwh(s.mwh)}</span></button></li>`).join("");
+  liste.querySelectorAll("button").forEach(b => b.onclick = () => { select(b.dataset.c, true); document.getElementById("mapbox").scrollIntoView({ behavior: "smooth", block: "center" }); });
+}
+
 /* ---------- contrôles ---------- */
 function buildControls() {
   document.getElementById("segMode").innerHTML = Object.entries(INDICATEURS)
@@ -452,6 +638,12 @@ function buildControls() {
     const lab = document.createElement("label"); lab.className = "switch";
     lab.innerHTML = `<input type="checkbox" id="couche-${l.id}" ${l.actif ? "checked" : ""}> ${l.label}`;
     lab.querySelector("input").onchange = e => { l.actif = e.target.checked; drawCouches(); drawLegend(); };
+    box.append(lab);
+  }
+  for (const l of SURCOUCHES) {
+    const lab = document.createElement("label"); lab.className = "switch";
+    lab.innerHTML = `<input type="checkbox" id="couche-${l.id}" ${l.actif ? "checked" : ""}> ${l.label}`;
+    lab.querySelector("input").onchange = e => { l.actif = e.target.checked; hideTip(); majSurcouches(); drawLegend(); };
     box.append(lab);
   }
 }
@@ -499,11 +691,12 @@ document.getElementById("themeBtn").onclick = () => {
 majBoutonTheme();
 
 const charger = f => fetch(f).then(r => { if (!r.ok) throw new Error(f + " : " + r.status); return r.json(); });
-Promise.all([charger("data/communes.json"), charger("data/conso.json"), charger("data/tea.json"), ...COUCHES.map(l => charger(l.fichier))]).then(([geo, conso, tea, ...lignes]) => {
+Promise.all([charger("data/communes.json"), charger("data/conso.json"), charger("data/tea.json"), charger("data/transition.json"), ...COUCHES.map(l => charger(l.fichier))]).then(([geo, conso, tea, transition, ...lignes]) => {
   D = conso; META = conso.meta; CONSO = conso.conso; YEARS = conso.annees;
-  TEA = { ...tea, codes: new Set(tea.communes) };
+  TEA = { ...tea, codes: new Set(tea.communes) }; TR = transition;
   renderHeader(); buildMap(geo);
   COUCHES.forEach((l, i) => l.path = lignesEnChemin(lignes[i]));
+  buildTransition();
   buildControls(); recolor(); drawCouches(); renderTerritoire();
   seg("segTerr", "terr", changerTerritoire); seg("segMode", "mode"); seg("segSect", "sect");
   const yr = document.getElementById("year");

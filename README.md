@@ -42,6 +42,7 @@ scripts/           chaîne de construction, lancée dans l'ordre par construire.
   03_styles_qgis.py    styles QGIS par défaut + qgis/reseau_et_conso_gaz.qlr
   04_donnees_carte.py  données de la carte web → carte/data/*.json
   05_territoire_tea.py territoire de TEA → carte/data/tea.json (openpyxl, ni GDAL ni QGIS)
+  06_transition.py     biométhane, chaleur, revenus → carte/data/transition.json (Python seul)
 qgis/              GeoPackage et fichier de couches générés (glisser le .qlr dans QGIS)
 carte/             la carte web : index.html, style.css, app.js, data/
 build/             fichiers intermédiaires (géométries simplifiées), supprimable
@@ -56,6 +57,9 @@ Dockerfile, compose.yaml   environnement Docker (carte + construction)
 | `cartographie-du-reseau-grdf-en-service.csv` | GRDF, réseau en service |
 | `communes-5m.geojson.gz` | Contours des communes (IGN Admin Express, généralisation 1:5M) |
 | `Communes_TEA_INSEE.xlsx` | TEA, liste des 390 communes membres |
+| `capacite-et-quantite-dinjection-de-biomethane-2.csv` | Sites d'injection de biométhane : capacité et volumes par an |
+| `opendata-fcu.zip` | France Chaleur Urbaine : réseaux de chaleur, zones de développement prioritaire, projets |
+| `revenu-des-francais-a-la-commune-*.csv` | Revenus par commune, 2021 |
 
 Correction appliquée dans `scripts/commun.py` : les volumes Caléo 2023 et 2024 sont publiés en
 GWh au lieu de MWh et sont multipliés par 1 000.
@@ -78,6 +82,23 @@ recherche et le classement. Après une mise à jour de `Communes_TEA_INSEE.xlsx`
 `python3 scripts/05_territoire_tea.py` est à relancer (avec `pip install openpyxl` hors Docker).
 Le total TEA est à périmètre constant, comme celui de l'Alsace.
 
+## Lire un décommissionnement
+
+Chaque fiche commune répond à trois questions dans le bloc « Pour décider ». Les seuils sont des
+constantes en haut de `carte/app.js`. Ce sont des repères de lecture, pas des critères réglementaires.
+
+- **Ancrage** : un site de biométhane qui injecte plus que sa commune ne consomme a besoin du
+  réseau pour évacuer son gaz (losange plein sur la carte, en tête de la liste des sites). Un
+  réseau de chaleur produisant au moins 50 % de sa chaleur au gaz ancre aussi le réseau.
+- **Substitution** : réseaux de chaleur produisant moins de 50 % au gaz et desservant au moins
+  3 clients, zones de développement prioritaire et projets. L'indicateur « Réseau de chaleur »
+  affiche le gaz des logements et du tertiaire de ces communes : c'est un maximum.
+- **Accompagnement** : revenu médian de la commune, repère à 23 000 € par an.
+
+Après une mise à jour de ces sources, relancer `python3 scripts/06_transition.py`. Le script
+lit `carte/data/communes.json` et `conso.json`, il passe donc après `04_donnees_carte.py`, et
+signale les sites hors de leur commune et les noms de communes inconnus.
+
 ## Couleurs
 
 - **Rouge et vert sont réservés aux évolutions** : baisse en rouge, hausse en vert, sur la carte,
@@ -86,6 +107,8 @@ Le total TEA est à périmètre constant, comme celui de l'Alsace.
   distinct du rouge pour les personnes daltoniennes.
 - **Bleu** pour les grandeurs sans hausse ni baisse (jetons `--q1` à `--q5`).
 - **Secteurs** en bleu, ambre, violet et gris (`--s-*`), sans rouge ni vert.
+- **Couches** : magenta pour la chaleur (`--chaleur`), losanges ambre pour le biométhane (`--biomethane`).
+- **Revenus** : même échelle bleue, inversée pour que les communes modestes ressortent.
 
 ## Ajouter des données sur la carte
 
