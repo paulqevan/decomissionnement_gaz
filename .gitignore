@@ -2,3 +2,5 @@ build/
 __pycache__/
 # sources lourdes : les retélécharger plutôt que les versionner
 donnees/sources/*.gz
+# fichier détail des logements du recensement (87 Mo) : python3 scripts/00_telecharger.py logements
+donnees/sources/RP2022_logemtzc.zip

@@ -11,7 +11,8 @@ CARTE_DATA = os.path.join(RACINE, "carte", "data")
 
 SRC_COMMUNES = os.path.join(SOURCES, "communes-5m.geojson.gz")
 SRC_RESEAU = os.path.join(SOURCES, "cartographie-du-reseau-grdf-en-service.csv")
-SRC_CONSO = os.path.join(SOURCES, "consommation-annuelle-d-electricite-et-gaz-par-commune.csv")
+SRC_CONSO = os.path.join(SOURCES, "consommation-annuelle-gaz-par-commune.csv")
+SRC_ELEC = os.path.join(SOURCES, "consommation-annuelle-d-electricite-par-commune.csv")
 SRC_TEA = os.path.join(SOURCES, "Communes_TEA_INSEE.xlsx")
 SRC_BIOMETHANE = os.path.join(SOURCES, "capacite-et-quantite-dinjection-de-biomethane-2.csv")
 SRC_CHALEUR = os.path.join(SOURCES, "opendata-fcu.zip")
@@ -31,8 +32,6 @@ def lire_conso():
     """
     with open(SRC_CONSO, encoding="utf-8") as fh:
         for r in csv.DictReader(fh):
-            if r["FILIERE"] != "Gaz":
-                continue
             annee, op = int(r["annee"]), r["OPERATEUR"]
             mwh = float(r["Conso totale (MWh)"] or 0)
             if op == "Caléo" and annee in (2023, 2024):  # publiées en GWh au lieu de MWh

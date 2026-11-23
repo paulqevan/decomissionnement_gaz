@@ -29,12 +29,12 @@ def lire_communes_tea():
     return {str(r[code]).zfill(5): r[population] or 0 for r in lignes if r[code]}
 
 
-def perimetre_constant(codes=None):
+def perimetre_constant(codes=None, lignes=None):
     """Gaz par secteur et points de livraison par an, pour les communes demandées (toutes si None)."""
     volumes = defaultdict(lambda: defaultdict(lambda: defaultdict(float)))
     sites = defaultdict(lambda: defaultdict(int))
     present = defaultdict(set)
-    for r in lire_conso():
+    for r in lignes if lignes is not None else lire_conso():
         if r["operateur"] == "Natran" or (codes is not None and r["commune"] not in codes):
             continue  # Natran : réseau de transport, hors distribution
         cle, annee = (r["commune"], r["operateur"]), r["annee"]
